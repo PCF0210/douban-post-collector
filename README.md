@@ -106,30 +106,11 @@ GET https://m.douban.com/rexxar/api/v2/group/topic/{topic_id}/comments
 
 ## 爬取逻辑流程
 
-```mermaid
-flowchart TD
-    A["用户输入<br/>URL / ID"] --> B["① 解析输入<br/>提取帖子 ID<br/>支持批量多行"]
-    B --> C["② 选择设备档位<br/>创建 Session<br/>TLS / UA / CH 同源"]
-    C --> D["③ 预热获取 bid<br/>服务端 Set-Cookie<br/>不伪造 Cookie"]
-    D --> E["④ 浏览路径预热<br/>首页 → 小组首页<br/>构建 Referer 链"]
-    E --> F["⑤ 获取帖子详情<br/>失败重试<br/>连续被拦才换身份<br/>5 次熔断"]
-    F --> G["⑥ 获取评论<br/>首页 + 分页并发<br/>按 offset 合并<br/>自动补 floor"]
-    G --> H["⑦ 提取图片 URL<br/>正文 + 评论图片<br/>去重过滤"]
-    H --> I["⑧ 持久化 SQLite<br/>单事务原子写入<br/>缩水保护 / stale"]
-    I --> J["⑨ 渲染展示<br/>QWebEngineView<br/>搜索高亮"]
-```
+![爬取逻辑流程](assets/diagram_flow_zh.png)
 
 ### 自适应反反爬策略
 
-```mermaid
-flowchart TD
-    R["请求前微抖动<br/>0.05~0.15s"] --> S["发送请求<br/>头组合来自档位<br/>不自造矛盾指纹"]
-    S -->|成功| OK["note_success()<br/>连续被拦计数清零<br/>60s 无失败恢复"]
-    S -->|被限| BL["note_block()<br/>连续被拦 +1<br/>延迟等级 +1（最高 8）<br/>冷却 ≤120s"]
-    BL --> RO["连续 2 次被拦<br/>更换完整身份<br/>换档位 + 新 Session<br/>重新预热拿 bid<br/>间隔 ≥45s"]
-    BL --> BR["连续 5 次被拦<br/>熔断中止<br/>保留部分数据"]
-    BL --> RT["最多重试 4 次<br/>仍失败则报错"]
-```
+![自适应反反爬策略](assets/diagram_adaptive_zh.png)
 
 ### 反爬检测项
 
@@ -443,7 +424,7 @@ dbp/
 │       └── ui_theme.py      # 调色板 + QSS / HTML 样式模板
 ├── tests/                   # pytest 单元测试（身份头、配置、限速、日志、数据库、加密、匿名化）
 ├── .github/workflows/ci.yml # CI：Windows + Python 3.12，compileall + pytest
-├── assets/                  # 应用图标：logo.png(1024) / logo_256 / logo_128 / logo_64 / logo.ico
+├── assets/                  # 图标 + README 流程图：logo*.png / diagram_flow_zh.png / diagram_flow_en.png / diagram_adaptive_zh.png / diagram_adaptive_en.png
 ├── logs/                    # 运行日志（自动创建，已 gitignore）
 ├── backups/                 # 数据库自动备份（位于数据目录下，已 gitignore）
 ├── douban_data.db           # SQLite 数据库文件（源码运行时的默认位置，首次运行自动生成）
@@ -634,30 +615,11 @@ Each comment contains:
 
 ## Crawling Workflow
 
-```mermaid
-flowchart TD
-    A["User input<br/>URL / ID"] --> B["① Parse input<br/>Extract topic ID<br/>URL / batch supported"]
-    B --> C["② Pick device profile<br/>Create a Session<br/>TLS / UA / CH aligned"]
-    C --> D["③ Warm up for bid<br/>Server Set-Cookie<br/>Never forge cookies"]
-    D --> E["④ Browsing warm-up<br/>Homepage → group page<br/>Build Referer chain"]
-    E --> F["⑤ Fetch topic details<br/>Retry on failure<br/>Rotate after blocks<br/>Breaker at 5"]
-    F --> G["⑥ Fetch comments<br/>First page + parallel<br/>Merge by offset<br/>Back-fill floor"]
-    G --> H["⑦ Extract image URLs<br/>Body + comment images<br/>Dedupe and filter"]
-    H --> I["⑧ Persist to SQLite<br/>One atomic transaction<br/>Shrink / stale guard"]
-    I --> J["⑨ Render and display<br/>QWebEngineView<br/>Search highlight"]
-```
+![Crawl Workflow](assets/diagram_flow_en.png)
 
 ### Adaptive Anti-Anti-Crawling Strategy
 
-```mermaid
-flowchart TD
-    R["Before request<br/>jitter 0.05~0.15s"] --> S["Send request<br/>Headers from profile<br/>No mixed fingerprint"]
-    S -->|success| OK["note_success()<br/>Reset block counter<br/>Recover after 60s"]
-    S -->|blocked| BL["note_block()<br/>Blocks +1<br/>Delay level +1 (max 8)<br/>Cooldown <=120s"]
-    BL --> RO["2 blocks in a row<br/>Rotate full identity<br/>New profile + Session<br/>Re-warm and get bid<br/>>=45s apart"]
-    BL --> BR["5 blocks in a row<br/>Circuit-break<br/>Keep partial data"]
-    BL --> RT["Max 4 retries<br/>Error if still failing"]
-```
+![Adaptive Anti-Bot Strategy](assets/diagram_adaptive_en.png)
 
 ### Anti-Crawl Detection Checks
 
@@ -970,7 +932,7 @@ dbp/
 │       └── ui_theme.py             # Color palette + QSS / HTML style templates
 ├── tests/                          # pytest unit tests (identity headers, config, rate limiting, logging, database, encryption, anonymization)
 ├── .github/workflows/ci.yml        # CI: Windows + Python 3.12, compileall + pytest
-├── assets/                         # Application icons: logo.png(1024) / logo_256 / logo_128 / logo_64 / logo.ico
+├── assets/                         # Icons + README diagrams: logo*.png / diagram_flow_zh.png / diagram_flow_en.png / diagram_adaptive_zh.png / diagram_adaptive_en.png
 ├── logs/                           # Runtime logs (created automatically, gitignored)
 ├── backups/                        # Automatic database backups (under the data directory, gitignored)
 ├── douban_data.db                  # SQLite database file (default location for source runs, created on first run)
