@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+
+# Virtual environments
+venv/
+env/
+.env
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# SQLite databases
+*.db
+
+# Claude Code
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# Runtime logs
+logs/
+
+# 工具缓存
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 数据库备份（VACUUM INTO 生成的 backups/）
+backups/
+
+# 下载/写入过程中的临时文件
+*.part

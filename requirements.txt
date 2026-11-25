@@ -1,0 +1,34 @@
+# 运行依赖（已锁定主版本上界，避免上游大版本不兼容）
+# Python 3.12+
+PySide6>=6.5.0,<7
+PySide6-WebEngine>=6.5.0,<7
+requests>=2.28.0,<3
+
+# 可选：TLS 指纹伪装（按设备档位 impersonate，实测推荐 0.15.0；
+# 低于该版本会退回 chrome120 档位，UA 与 TLS 版本一致性略降）
+curl_cffi>=0.8.0,<1
+
+# OCR 文字识别（可选，用于从评论图片中提取文字）
+#
+# 推荐：RapidOCR（PP-OCRv4 + onnxruntime，中文准确率明显高于 Tesseract，
+# 自带中英文模型，无需另装引擎；程序默认 OCR_ENGINE='auto' 会优先用它）
+#   pip install "rapidocr-onnxruntime>=1.3.0,<2"
+#
+# 兜底：Tesseract（未装 RapidOCR 时使用），需同时安装引擎本体：
+#   Windows: https://github.com/UB-Mannheim/tesseract/wiki
+#   macOS:   brew install tesseract tesseract-lang
+#   Linux:   sudo apt install tesseract-ocr tesseract-ocr-chi-sim
+pytesseract>=0.3.10,<0.4
+Pillow>=10.0.0,<13
+
+# GPU 加速（可选，Windows）：程序自动检测，优先 CUDA，其次 DirectML，都没有则 CPU
+#   （配置项 OCR_DEVICE = 'auto' / 'cuda' / 'dml' / 'cpu'）
+#
+# NVIDIA 显卡（CUDA，最快，整条流水线约 0.17 秒/张）：
+#   pip uninstall onnxruntime onnxruntime-directml -y
+#   pip install onnxruntime-gpu==1.22.0
+#   pip install nvidia-cudnn-cu12 nvidia-cublas-cu12 nvidia-cuda-runtime-cu12 nvidia-cufft-cu12 nvidia-curand-cu12
+#
+# 其他显卡 / 核显（DirectML，约 0.24 秒/张）：
+#   pip uninstall onnxruntime onnxruntime-gpu -y
+#   pip install onnxruntime-directml
