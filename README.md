@@ -106,159 +106,29 @@ GET https://m.douban.com/rexxar/api/v2/group/topic/{topic_id}/comments
 
 ## 爬取逻辑流程
 
-```
-用户输入（URL/ID）
-      │
-      ▼
-┌─────────────────────────────┐
-│ 1. 解析输入                  │
-│    正则提取帖子 ID           │
-│    支持 URL / 纯数字 / 批量多行 │
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│ 2. 选择设备档位并建 Session  │
-│    ├─ Chrome 131 / Android  │
-│    │   impersonate=         │
-│    │   chrome131_android    │
-│    └─ Safari 18 / iOS 18    │
-│        impersonate=         │
-│        safari180_ios        │
-│    TLS / UA / Client Hints  │
-│    来自同一档位，不再拼凑    │
-│    回退：TLSAdapter         │
-│        (自定义 Cipher Suite │
-│         + ALPN + TLS 1.2+)  │
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│ 3. 预热并从响应拿 bid        │
-│    GET 首页                 │
-│    └─ 服务端下发 bid cookie │
-│       (11 字符 base64url)   │
-│    不伪造 bid / dbcl2 / ck  │
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│ 4. 浏览路径预热 (Warmup)     │
-│    ① GET 首页               │
-│       └─ 导航头 + 档位 UA   │
-│       └─ delay 0.4~1.0s     │
-│    ② GET 小组首页（子频道） │
-│       └─ Referer: 首页      │
-│       └─ delay 0.4~1.0s     │
-│    ③ 接口 Referer 指向帖子页 │
-│       (m 站已不提供该 HTML  │
-│        页，实测恒 404，不请求)│
-│                              │
-│    目的：构建完整 Referer 链， │
-│    让服务端看到真实用户路径    │
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│ 5. 获取帖子详情              │
-│    GET /rexxar/api/v2/      │
-│        group/topic/{id}     │
-│                              │
-│    失败则重试（最多4次）：    │
-│    ├─ 指数退避 + 尊重       │
-│    │   Retry-After 响应头    │
-│    ├─ 连续被拦才更换完整身份 │
-│    │   (新 session + 重新预热│
-│    │    + 至少间隔 45s)      │
-│    └─ 连续 5 次被拦直接熔断  │
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│ 6. 获取评论                  │
-│                              │
-│    第1页：顺序请求           │
-│    GET .../comments          │
-│    ?start=0&count=100&order=asc │
-│    └─ 拿到 total 总数        │
-│                              │
-│    剩余页：并发请求           │
-│    ThreadPoolExecutor        │
-│    并发数: 被限→1, 正常→2    │
-│    ┌─ 每个线程独立 Session   │
-│    ├─ 随机错开 0.1~0.6s     │
-│    ├─ 继承主 Session Cookie │
-│    └─ 不按页换 UA / 伪造 bid │
-│                              │
-│    首页返回空列表但帖子有评论 │
-│    → 判定被限流/风控并熔断   │
-│    结果按 offset 排序合并    │
-│    自动补全缺失的 floor 字段 │
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│ 7. 提取图片 URL              │
-│    来源：                    │
-│    ├─ 帖子正文 content       │
-│    │   ├─ <img src="...">   │
-│    │   ├─ data-src (懒加载) │
-│    │   └─ 裸图床链接         │
-│    └─ 评论 content + photos │
-│        ├─ 正文内 <img>      │
-│        └─ photos[].image    │
-│           .normal.url       │
-│                              │
-│    去重 (seen set)           │
-│    过滤: .svg/.ico/.css/.js │
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│ 8. 持久化到 SQLite          │
-│    ├─ save_topic()          │
-│    ├─ save_comments()       │
-│    └─ save_images()         │
-│       (INSERT OR IGNORE 去重)│
-└──────────┬──────────────────┘
-           │
-           ▼
-┌─────────────────────────────┐
-│ 9. 渲染展示                  │
-│    ├─ QWebEngineView 渲染   │
-│    │   HTML5 + 内嵌 CSS      │
-│    ├─ 安全清洗 HTML          │
-│    │   (去 script/style/     │
-│    │    iframe/事件属性)     │
-│    └─ 搜索高亮 (JS注入)     │
-│       TreeWalker 遍历文本节点 │
-└─────────────────────────────┘
+```mermaid
+flowchart TD
+    A["用户输入<br/>URL / ID"] --> B["① 解析输入<br/>提取帖子 ID<br/>支持批量多行"]
+    B --> C["② 选择设备档位<br/>创建 Session<br/>TLS / UA / CH 同源"]
+    C --> D["③ 预热获取 bid<br/>服务端 Set-Cookie<br/>不伪造 Cookie"]
+    D --> E["④ 浏览路径预热<br/>首页 → 小组首页<br/>构建 Referer 链"]
+    E --> F["⑤ 获取帖子详情<br/>失败重试<br/>连续被拦才换身份<br/>5 次熔断"]
+    F --> G["⑥ 获取评论<br/>首页 + 分页并发<br/>按 offset 合并<br/>自动补 floor"]
+    G --> H["⑦ 提取图片 URL<br/>正文 + 评论图片<br/>去重过滤"]
+    H --> I["⑧ 持久化 SQLite<br/>单事务原子写入<br/>缩水保护 / stale"]
+    I --> J["⑨ 渲染展示<br/>QWebEngineView<br/>搜索高亮"]
 ```
 
 ### 自适应反反爬策略
 
-```
-请求前: 微抖动 0.05~0.15s
-    │
-    ▼
-发送请求（头组合来自当前设备档位，不自造矛盾指纹）
-    │
-    ├── 成功 ──► note_success()
-    │              ├─ 连续被拦计数清零
-    │              └─ 连续成功 >60s → 重置延迟等级
-    │
-    └── 被限 ──► note_block()
-                   ├─ 累计连续被拦次数 +1
-                   ├─ 延迟等级 +1 (最高8级)
-                   ├─ 冷却时间 = max(Retry-After, 20s × 2^(n-1))，上限 120s
-                   ├─ 连续 2 次被拦 → 更换完整身份
-                   │   ├─ 换设备档位（Chrome/Safari 随机）
-                   │   ├─ 新建 session（新 TLS 会话）
-                   │   ├─ 重新预热并拿新 bid
-                   │   └─ 两次换身份至少间隔 45s
-                   ├─ 连续 5 次被拦 → 熔断中止本次任务
-                   │   （保留已抓到的部分数据，不覆盖历史完整数据）
-                   └─ 单次请求最多重试 4 次，仍失败则报错
+```mermaid
+flowchart TD
+    R["请求前微抖动<br/>0.05~0.15s"] --> S["发送请求<br/>头组合来自档位<br/>不自造矛盾指纹"]
+    S -->|成功| OK["note_success()<br/>连续被拦计数清零<br/>60s 无失败恢复"]
+    S -->|被限| BL["note_block()<br/>连续被拦 +1<br/>延迟等级 +1（最高 8）<br/>冷却 ≤120s"]
+    BL --> RO["连续 2 次被拦<br/>更换完整身份<br/>换档位 + 新 Session<br/>重新预热拿 bid<br/>间隔 ≥45s"]
+    BL --> BR["连续 5 次被拦<br/>熔断中止<br/>保留部分数据"]
+    BL --> RT["最多重试 4 次<br/>仍失败则报错"]
 ```
 
 ### 反爬检测项
@@ -764,155 +634,29 @@ Each comment contains:
 
 ## Crawling Workflow
 
-```
-User input (URL / ID)
-                                  |
-                                  v
-+------------------------------------------------------------------+
-| 1. Parse input                                                   |
-|    Regex-extract the topic ID                                    |
-|    Supports URL / bare number / multi-line batch                 |
-+---------------------------------+--------------------------------+
-                                  |
-                                  v
-+------------------------------------------------------------------+
-| 2. Select a device profile and create a Session                  |
-|    +- Chrome 131 / Android                                       |
-|    |    impersonate=                                             |
-|    |    chrome131_android                                        |
-|    +- Safari 18 / iOS 18                                         |
-|       impersonate=                                               |
-|       safari180_ios                                              |
-|    TLS / UA / Client Hints                                       |
-|    come from the same profile, never mixed                       |
-|    Fallback: TLSAdapter                                          |
-|    (custom Cipher Suite + ALPN + TLS 1.2+)                       |
-+---------------------------------+--------------------------------+
-                                  |
-                                  v
-+------------------------------------------------------------------+
-| 3. Warm up and obtain bid from the response                      |
-|    GET homepage                                                  |
-|    +- the server issues the bid cookie                           |
-|       (11-character base64url)                                   |
-|    Never forge bid / dbcl2 / ck                                  |
-+---------------------------------+--------------------------------+
-                                  |
-                                  v
-+------------------------------------------------------------------+
-| 4. Browsing-path warm-up (Warmup)                                |
-|    (1) GET homepage                                              |
-|        +- navigation headers + profile UA                        |
-|        +- delay 0.4~1.0s                                         |
-|    (2) GET group homepage (sub-channel)                          |
-|        +- Referer: homepage                                      |
-|        +- delay 0.4~1.0s                                         |
-|    (3) API Referer points to the topic page                      |
-|        (the m site no longer serves that                         |
-|         HTML page, always 404 in tests,                          |
-|         so it is not requested)                                  |
-|    Purpose: build a complete Referer chain                       |
-|    so the server sees a real user path                           |
-+---------------------------------+--------------------------------+
-                                  |
-                                  v
-+------------------------------------------------------------------+
-| 5. Get topic details                                             |
-|    GET /rexxar/api/v2/group/topic/{id}                           |
-|    On failure retry (max 4):                                     |
-|    +- exponential backoff + honor the                            |
-|    |  Retry-After response header                                |
-|    +- rotate the full identity only after                        |
-|    |  consecutive blocks (new session +                          |
-|    |  re-warm-up + at least 45s apart)                           |
-|    +- circuit-break after 5 consecutive                          |
-|       blocks                                                     |
-+---------------------------------+--------------------------------+
-                                  |
-                                  v
-+------------------------------------------------------------------+
-| 6. Get comments                                                  |
-|    Page 1: sequential request                                    |
-|    GET .../comments                                              |
-|    ?start=0&count=100&order=asc                                  |
-|    +- obtain the total count                                     |
-|    Remaining pages: concurrent requests                          |
-|    ThreadPoolExecutor                                            |
-|    concurrency: throttled -> 1, normal -> 2                      |
-|    +- each thread has its own Session                            |
-|    +- random stagger 0.1~0.6s                                    |
-|    +- inherit the main Session cookies                           |
-|    +- no per-page UA change / forged bid                         |
-|    Empty list on page 1 while the topic has                      |
-|    comments -> treat as rate-limited / risk                      |
-|    control and circuit-break                                     |
-|    Merge results sorted by offset                                |
-|    Auto-fill missing floor fields                                |
-+---------------------------------+--------------------------------+
-                                  |
-                                  v
-+------------------------------------------------------------------+
-| 7. Extract image URLs                                            |
-|    Sources:                                                      |
-|    +- topic body content                                         |
-|    |  +- <img src="...">                                         |
-|    |  +- data-src (lazy loading)                                 |
-|    |  +- bare image-host links                                   |
-|    +- comment content + photos                                   |
-|       +- <img> in the body                                       |
-|       +- photos[].image.normal.url                               |
-|    Dedupe (seen set)                                             |
-|    Filter: .svg/.ico/.css/.js                                    |
-+---------------------------------+--------------------------------+
-                                  |
-                                  v
-+------------------------------------------------------------------+
-| 8. Persist to SQLite                                             |
-|    +- save_topic()                                               |
-|    +- save_comments()                                            |
-|    +- save_images()                                              |
-|       (INSERT OR IGNORE dedupe)                                  |
-+---------------------------------+--------------------------------+
-                                  |
-                                  v
-+------------------------------------------------------------------+
-| 9. Render and display                                            |
-|    +- QWebEngineView renders                                     |
-|    |  HTML5 + inline CSS                                         |
-|    +- sanitize HTML                                              |
-|    |  (strip script/style/iframe/event                           |
-|    |   attributes)                                               |
-|    +- search highlighting (JS injection)                         |
-|       TreeWalker over text nodes                                 |
-+---------------------------------+--------------------------------+
+```mermaid
+flowchart TD
+    A["User input<br/>URL / ID"] --> B["① Parse input<br/>Extract topic ID<br/>URL / batch supported"]
+    B --> C["② Pick device profile<br/>Create a Session<br/>TLS / UA / CH aligned"]
+    C --> D["③ Warm up for bid<br/>Server Set-Cookie<br/>Never forge cookies"]
+    D --> E["④ Browsing warm-up<br/>Homepage → group page<br/>Build Referer chain"]
+    E --> F["⑤ Fetch topic details<br/>Retry on failure<br/>Rotate after blocks<br/>Breaker at 5"]
+    F --> G["⑥ Fetch comments<br/>First page + parallel<br/>Merge by offset<br/>Back-fill floor"]
+    G --> H["⑦ Extract image URLs<br/>Body + comment images<br/>Dedupe and filter"]
+    H --> I["⑧ Persist to SQLite<br/>One atomic transaction<br/>Shrink / stale guard"]
+    I --> J["⑨ Render and display<br/>QWebEngineView<br/>Search highlight"]
 ```
 
 ### Adaptive Anti-Anti-Crawling Strategy
 
-```
-Before request: micro-jitter 0.05~0.15s
-    |
-    v
-Send request (the header set comes from the current device profile;
-              no self-contradicting fingerprint)
-    |
-    +-- success --> note_success()
-    |               +-- reset the consecutive-block counter
-    |               +-- consecutive success > 60s -> reset the delay level
-    |
-    +-- blocked --> note_block()
-                    +-- consecutive blocks +1
-                    +-- delay level +1 (max level 8)
-                    +-- cooldown = max(Retry-After, 20s * 2^(n-1)), capped at 120s
-                    +-- 2 consecutive blocks -> rotate the full identity
-                    |   +-- switch device profile (random Chrome/Safari)
-                    |   +-- create a new session (new TLS session)
-                    |   +-- re-warm up and obtain a new bid
-                    |   +-- at least 45s between two identity rotations
-                    +-- 5 consecutive blocks -> circuit-break, abort this task
-                    |   +-- keep the partial data already scraped;
-                    |       never overwrite complete historical data
-                    +-- at most 4 retries per request; error if still failing
+```mermaid
+flowchart TD
+    R["Before request<br/>jitter 0.05~0.15s"] --> S["Send request<br/>Headers from profile<br/>No mixed fingerprint"]
+    S -->|success| OK["note_success()<br/>Reset block counter<br/>Recover after 60s"]
+    S -->|blocked| BL["note_block()<br/>Blocks +1<br/>Delay level +1 (max 8)<br/>Cooldown <=120s"]
+    BL --> RO["2 blocks in a row<br/>Rotate full identity<br/>New profile + Session<br/>Re-warm and get bid<br/>>=45s apart"]
+    BL --> BR["5 blocks in a row<br/>Circuit-break<br/>Keep partial data"]
+    BL --> RT["Max 4 retries<br/>Error if still failing"]
 ```
 
 ### Anti-Crawl Detection Checks
